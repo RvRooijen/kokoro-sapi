@@ -162,13 +162,15 @@ impl KokoroEngine_Impl {
         let mut state = self.state.lock().unwrap();
         ensure_synth(&mut state);
         let voice = state.voice.clone();
+        let mut pacer = Pacer::new();
 
         for frag in frags {
             match frag {
                 Frag::SilenceMs(ms) => {
                     let buf = vec![0u8; (ms * BYTES_PER_MS) as usize & !1];
-                    unsafe { site.Write(buf.as_ptr() as *const c_void, buf.len() as u32)? };
-                    bytes_written += buf.len() as u64;
+                    if !write_pcm(site, &buf, &mut bytes_written, &mut pacer) {
+                        return Ok(());
+                    }
                 }
                 Frag::Text { utf16, src_offset } => {
                     let text = String::from_utf16_lossy(&utf16);
@@ -196,14 +198,91 @@ impl KokoroEngine_Impl {
                         let pcm = to_pcm16(&samples, volume as f32 / 100.0);
 
                         emit_word_boundaries(site, &sentence, src_offset, bytes_written, pcm.len());
-                        unsafe { site.Write(pcm.as_ptr() as *const c_void, pcm.len() as u32)? };
-                        bytes_written += pcm.len() as u64;
+                        if !write_pcm(site, &pcm, &mut bytes_written, &mut pacer) {
+                            return Ok(());
+                        }
                     }
                 }
             }
         }
         Ok(())
     }
+}
+
+/// ~100 ms of audio per Write. Small chunks give us a GetActions check every
+/// ~100 ms, and a purge unblocks a pending Write with an error.
+const CHUNK_BYTES: usize = (SAMPLE_RATE as usize / 10) * 2;
+
+/// Max audio we keep buffered ahead of real-time playback. ISpVoice::Pause
+/// does NOT stop the audio device — it only blocks our Write calls, and
+/// everything already buffered plays out (measured: pause took effect seconds
+/// late, at the end of the sentence). Since we synthesize much faster than
+/// real-time, unthrottled writes buffer the whole sentence and pause feels
+/// broken. Pacing writes to playback speed + this lead caps the pause delay.
+const MAX_LEAD: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Tracks wall-clock vs written audio so writes stay ~MAX_LEAD ahead of
+/// playback. The clock starts at the first write.
+struct Pacer {
+    start: Option<std::time::Instant>,
+}
+
+impl Pacer {
+    fn new() -> Self {
+        Self { start: None }
+    }
+
+    /// Sleep until `bytes_written` is at most MAX_LEAD ahead of playback.
+    /// Returns false on abort.
+    fn throttle(&mut self, site: &ISpTTSEngineSite, bytes_written: u64) -> bool {
+        let start = self.start.get_or_insert_with(std::time::Instant::now);
+        let audio_pos =
+            std::time::Duration::from_secs_f64(bytes_written as f64 / (SAMPLE_RATE * 2) as f64);
+        loop {
+            if unsafe { site.GetActions() } & SPVES_ABORT != 0 {
+                elog!("abort requested while pacing");
+                return false;
+            }
+            let elapsed = start.elapsed();
+            if audio_pos <= elapsed + MAX_LEAD {
+                return true;
+            }
+            std::thread::sleep((audio_pos - elapsed - MAX_LEAD).min(std::time::Duration::from_millis(50)));
+        }
+    }
+
+    /// A Write that blocked for long means SAPI held us (pause, or a full
+    /// device buffer): playback did not consume audio during that time, so
+    /// shift the clock to keep the lead at MAX_LEAD instead of bursting.
+    fn on_blocked_write(&mut self, blocked_for: std::time::Duration) {
+        if let Some(start) = self.start.as_mut() {
+            *start += blocked_for;
+        }
+    }
+}
+
+/// Returns false when speaking should stop (abort/purge) — not an error.
+fn write_pcm(site: &ISpTTSEngineSite, data: &[u8], bytes_written: &mut u64, pacer: &mut Pacer) -> bool {
+    for chunk in data.chunks(CHUNK_BYTES) {
+        if !pacer.throttle(site, *bytes_written) {
+            return false;
+        }
+        if unsafe { site.GetActions() } & SPVES_ABORT != 0 {
+            elog!("abort requested mid-write");
+            return false;
+        }
+        let before = std::time::Instant::now();
+        if let Err(e) = unsafe { site.Write(chunk.as_ptr() as *const c_void, chunk.len() as u32) } {
+            elog!("write interrupted (purge): {e}");
+            return false;
+        }
+        let blocked = before.elapsed();
+        if blocked > std::time::Duration::from_millis(250) {
+            pacer.on_blocked_write(blocked);
+        }
+        *bytes_written += chunk.len() as u64;
+    }
+    true
 }
 
 fn ensure_synth(state: &mut EngineState) {
