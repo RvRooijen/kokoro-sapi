@@ -18,7 +18,7 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -32,14 +32,14 @@ jobs:
           Copy-Item target/release/kokoro_sapi.dll, target/release/setup.exe, README.md, LICENSE dist/
           Compress-Archive -Path dist/* -DestinationPath kokoro-sapi-win-x64.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kokoro-sapi-win-x64
           path: kokoro-sapi-win-x64.zip
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: kokoro-sapi-win-x64.zip
           generate_release_notes: true
