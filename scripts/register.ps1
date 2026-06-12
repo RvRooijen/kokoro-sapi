@@ -50,17 +50,22 @@ $voices = @(
     @{ Token = 'KokoroEmma';    Display = 'Kokoro Emma (en-GB)';    VoiceName = 'bf_emma';    Gender = 'Female'; Language = '809' }
 )
 
-$hives = @('HKCU:')
+# Chrome enumerates voices from HKLM\...\Speech_OneCore\Voices (hardcoded in
+# content/browser/speech/tts_win.cc, classic SAPI only as fallback), so -Machine
+# writes the tokens there too. It skips tokens without an Attributes\Language
+# value, which is why that attribute is required below.
+$tokenRoots = @('HKCU:\SOFTWARE\Microsoft\Speech\Voices\Tokens')
 if ($Machine) {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $admin) { throw '-Machine requires an elevated prompt' }
-    $hives += 'HKLM:'
+    $tokenRoots += 'HKLM:\SOFTWARE\Microsoft\Speech\Voices\Tokens'
+    $tokenRoots += 'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Voices\Tokens'
 }
 
-foreach ($hive in $hives) {
+foreach ($root in $tokenRoots) {
     foreach ($v in $voices) {
-        $base = "$hive\SOFTWARE\Microsoft\Speech\Voices\Tokens\$($v.Token)"
+        $base = "$root\$($v.Token)"
         New-Item -Force -Path "$base\Attributes" | Out-Null
         Set-ItemProperty -Path $base -Name '(default)' -Value $v.Display
         Set-ItemProperty -Path $base -Name 'CLSID' -Value $clsid
@@ -71,7 +76,7 @@ foreach ($hive in $hives) {
         Set-ItemProperty -Path "$base\Attributes" -Name 'Age' -Value 'Adult'
         Set-ItemProperty -Path "$base\Attributes" -Name 'Vendor' -Value 'Kokoro'
         Set-ItemProperty -Path "$base\Attributes" -Name 'Language' -Value $v.Language
-        Write-Host "  voice: $($v.Display) [$hive]"
+        Write-Host "  voice: $($v.Display) [$root]"
     }
 }
 

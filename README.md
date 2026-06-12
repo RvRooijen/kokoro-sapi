@@ -28,15 +28,19 @@ Tip: you can register before downloading assets — the engine then speaks a 440
 
 ## Chrome reading mode
 
-Reading mode does not list individual SAPI voices — its voice menu has Google's own downloadable voices plus a single **"System text-to-speech voice"** entry, which speaks with the *default* SAPI voice. So:
+Chrome builds its system-voice list from **`HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices`** — hardcoded in [`content/browser/speech/tts_win.cc`](https://source.chromium.org/chromium/chromium/src/+/main:content/browser/speech/tts_win.cc), with classic SAPI only as a fallback category that never triggers in practice. Per-user registration is therefore invisible to Chrome; register machine-wide once from an elevated prompt:
 
 ```powershell
-.\scripts\set-default-voice.ps1            # make Kokoro Heart the default (-Token KokoroEmma for another)
+.\scripts\register.ps1 -Machine
 ```
 
-Then restart Chrome and select "System text-to-speech voice" in reading mode. `set-default-voice.ps1 -Reset` restores the old default; `scripts\unregister.ps1` removes everything (including the default, if it pointed at Kokoro).
+Reading mode's voice menu then still shows only **one "System text-to-speech voice" per language**: its filtering (`read_aloud/tts_voice_filtering.ts`) groups system voices by language and keeps `voice.default || voices[0]`. SAPI enumeration returns the *default token first*, so make Kokoro the OneCore default to win that race for en-US:
 
-Apps that enumerate voices individually (Edge read aloud, most reader extensions) only show voices registered machine-wide — see `register.ps1 -Machine` under Gotchas.
+```powershell
+.\scripts\set-default-voice.ps1     # sets the classic-SAPI and OneCore defaults (per-user)
+```
+
+Then restart Chrome fully (check Task Manager — background mode keeps it alive) and select "System text-to-speech voice". For languages where Kokoro is the only system voice (en-GB with Emma on a default Windows install), no default juggling is needed. `speechSynthesis.getVoices()` in the DevTools console shows exactly what Chrome sees; `scripts\unregister.ps1` removes everything from all registries.
 
 ## Voices
 
@@ -61,7 +65,7 @@ Add more by extending the voice list in `scripts/register.ps1` and the download 
 ## Gotchas
 
 - **ONNX Runtime must be 1.26+** (the download script pins this). Older builds, including 1.22, can deadlock inside `CreateEnv`: ORT's Windows telemetry registers an ETW provider, and with the DiagTrack session subscribed (the Windows default) the enable callback fires synchronously and self-deadlocks. There is no runtime opt-out; don't downgrade. `examples/ortload.rs` is a standalone repro/smoke test for this.
-- **SAPI never enumerates per-user (HKCU) voice tokens** — neither native `GetVoices()` nor System.Speech lists them. They do work when opened by token id, and via the default-voice mechanism (`DefaultTokenId` in HKCU is respected) — which is exactly how Chrome's "System text-to-speech voice" picks them up. To get the voices into actual voice lists (Edge read aloud, reader extensions), run `register.ps1 -Machine` from an elevated prompt; the COM class stays per-user, so this is still single-account.
+- **SAPI never enumerates per-user (HKCU) voice tokens** — neither native `GetVoices()` nor System.Speech lists them. They do work when opened by token id, and classic SAPI apps respect them as default voice via `DefaultTokenId`. But anything that should show the voices in a list — Chrome (OneCore registry), Edge read aloud, reader extensions — needs `register.ps1 -Machine` from an elevated prompt. The COM class stays per-user, so even then it only works for this Windows account.
 
 ## Known limitations / roadmap
 
