@@ -32,6 +32,8 @@ setup.exe default-voice [TOKEN]   # e.g. default-voice KokoroEmma
 setup.exe uninstall [--purge]     # remove registrations; --purge also deletes the assets
 ```
 
+Double-clicking `setup.exe` from Explorer runs the install interactively (confirmation prompt, window stays open at the end).
+
 ## Chrome reading mode
 
 Why the UAC step: Chrome builds its system-voice list from **`HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices`** — hardcoded in [`content/browser/speech/tts_win.cc`](https://source.chromium.org/chromium/chromium/src/+/main:content/browser/speech/tts_win.cc), with classic SAPI only as a fallback category that never triggers in practice. Per-user registration is therefore invisible to Chrome; the elevated step of `setup install` writes the voice tokens to the OneCore registry (and HKLM SAPI) as well.

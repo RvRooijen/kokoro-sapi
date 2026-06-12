@@ -16,6 +16,7 @@ mod elevate;
 mod registry;
 mod speak;
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -26,6 +27,12 @@ const DEFAULT_TOKEN: &str = "KokoroHeart";
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("");
+
+    // No arguments: double-clicked from Explorer (or a bare `setup` in a
+    // terminal). Run the install interactively and keep the window open.
+    if cmd.is_empty() {
+        return interactive();
+    }
     let flag = |name: &str| args.iter().any(|a| a == name);
     let token_arg = || {
         args.get(1)
@@ -46,7 +53,8 @@ fn main() -> ExitCode {
         "machine-unregister" => registry::unregister_machine(),
         _ => {
             eprintln!(
-                "usage: setup <install [--user-only] [--quantized] | uninstall [--purge] | default-voice [TOKEN] | test [TOKEN]>"
+                "usage: setup <install [--user-only] [--quantized] | uninstall [--purge] | default-voice [TOKEN] | test [TOKEN]>\n\
+                 running without arguments starts the interactive install"
             );
             return ExitCode::from(2);
         }
@@ -59,6 +67,40 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn interactive() -> ExitCode {
+    println!("kokoro-sapi setup - Kokoro neural TTS as a Windows voice");
+    println!();
+    println!("This will download the voice model (~400 MB on first run), register the");
+    println!("Kokoro voices for this user, and show one UAC prompt for the machine-wide");
+    println!("step that Chrome's reading mode needs.");
+    println!();
+    print!("Continue? [Y/n] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().read_line(&mut line);
+
+    let code = match line.trim().to_lowercase().as_str() {
+        "" | "y" | "yes" => match install(false, false) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => {
+            println!("Cancelled.");
+            ExitCode::SUCCESS
+        }
+    };
+
+    println!();
+    print!("Press Enter to close ...");
+    let _ = std::io::stdout().flush();
+    let mut discard = String::new();
+    let _ = std::io::stdin().read_line(&mut discard);
+    code
 }
 
 fn install(user_only: bool, quantized: bool) -> Result<()> {
