@@ -12,35 +12,31 @@ Everything runs locally and in-process: no cloud, no server, no Python. Inferenc
 
 You need Windows 10/11 (64-bit) and [Rust](https://rustup.rs) with the default MSVC toolchain (rustup offers to install the Visual Studio Build Tools if they're missing).
 
-From a PowerShell in the repo root:
+From a terminal in the repo root:
 
-```powershell
+```
 cargo build --release
-.\scripts\download-assets.ps1      # model + voices + onnxruntime + espeak (~400 MB, or -Quantized for ~150 MB)
-.\scripts\register.ps1             # per-user (HKCU), no admin needed
-.\scripts\test-speak.ps1           # you should hear Kokoro through your speakers
+.\target\release\setup.exe install
 ```
 
-If PowerShell refuses to run the scripts, allow them for this session first: `Set-ExecutionPolicy -Scope Process Bypass`.
-
-For **Chrome's reading mode**, two extra steps are needed ([why](#chrome-reading-mode) below):
-
-```powershell
-.\scripts\register.ps1 -Machine    # from an elevated PowerShell
-.\scripts\set-default-voice.ps1    # make Kokoro the default system voice
-```
+`install` downloads the assets (~400 MB; `--quantized` for ~150 MB), copies the engine DLL to `%LOCALAPPDATA%\KokoroSapi`, registers the voices, shows **one UAC prompt** for the machine-wide step that Chrome needs ([why](#chrome-reading-mode) below), makes Kokoro the default voice, and speaks a test sentence.
 
 Then restart Chrome fully (check Task Manager — background mode keeps it alive), open reading mode and select **"System text-to-speech voice"**. Word highlighting tracks the speech.
 
-`scripts\unregister.ps1` removes all registrations (run elevated if you used `-Machine`); the assets in `%LOCALAPPDATA%\KokoroSapi` can simply be deleted.
+Other commands:
 
-Tip: you can register before downloading assets — the engine then speaks a 440 Hz test tone, which is a quick way to verify the COM/SAPI plumbing in isolation.
+```
+setup.exe install --user-only     # no UAC; works for SAPI apps, but Chrome won't see the voices
+setup.exe test [TOKEN]            # speak a test sentence (default KokoroHeart)
+setup.exe default-voice [TOKEN]   # e.g. default-voice KokoroEmma
+setup.exe uninstall [--purge]     # remove registrations; --purge also deletes the assets
+```
 
 ## Chrome reading mode
 
-Why the extra steps: Chrome builds its system-voice list from **`HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices`** — hardcoded in [`content/browser/speech/tts_win.cc`](https://source.chromium.org/chromium/chromium/src/+/main:content/browser/speech/tts_win.cc), with classic SAPI only as a fallback category that never triggers in practice. Per-user registration is therefore invisible to Chrome; `register.ps1 -Machine` writes the voice tokens to the OneCore registry (and HKLM SAPI) as well.
+Why the UAC step: Chrome builds its system-voice list from **`HKLM\SOFTWARE\Microsoft\Speech_OneCore\Voices`** — hardcoded in [`content/browser/speech/tts_win.cc`](https://source.chromium.org/chromium/chromium/src/+/main:content/browser/speech/tts_win.cc), with classic SAPI only as a fallback category that never triggers in practice. Per-user registration is therefore invisible to Chrome; the elevated step of `setup install` writes the voice tokens to the OneCore registry (and HKLM SAPI) as well.
 
-Reading mode's voice menu then still shows only **one "System text-to-speech voice" per language**: its filtering (`read_aloud/tts_voice_filtering.ts`) groups system voices by language and keeps `voice.default || voices[0]`. SAPI enumeration returns the *default token first*, which is why `set-default-voice.ps1` makes Kokoro the OneCore default — that wins the en-US slot. For languages where Kokoro is the only system voice (en-GB with Emma on a default Windows install), no default juggling is needed.
+Reading mode's voice menu then still shows only **one "System text-to-speech voice" per language**: its filtering (`read_aloud/tts_voice_filtering.ts`) groups system voices by language and keeps `voice.default || voices[0]`. SAPI enumeration returns the *default token first*, which is why `setup default-voice` makes Kokoro the OneCore default — that wins the en-US slot. For languages where Kokoro is the only system voice (en-GB with Emma on a default Windows install), no default juggling is needed.
 
 `speechSynthesis.getVoices()` in the DevTools console shows exactly what Chrome sees.
 
@@ -53,7 +49,7 @@ Reading mode's voice menu then still shows only **one "System text-to-speech voi
 | Kokoro Michael (en-US) | `am_michael` | male |
 | Kokoro Emma (en-GB) | `bf_emma` | female |
 
-Add more by extending the voice list in `scripts/register.ps1` and the download list in `scripts/download-assets.ps1` ([all voices](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/tree/main/voices)).
+Add more by extending `VOICES` in `src/bin/setup/registry.rs` ([all voices](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/tree/main/voices)); the download list follows it automatically.
 
 ## How it works
 
@@ -68,7 +64,7 @@ Add more by extending the voice list in `scripts/register.ps1` and the download 
 ## Gotchas
 
 - **ONNX Runtime must be 1.26+** (the download script pins this). Older builds, including 1.22, can deadlock inside `CreateEnv`: ORT's Windows telemetry registers an ETW provider, and with the DiagTrack session subscribed (the Windows default) the enable callback fires synchronously and self-deadlocks. There is no runtime opt-out; don't downgrade. `examples/ortload.rs` is a standalone repro/smoke test for this.
-- **SAPI never enumerates per-user (HKCU) voice tokens** — neither native `GetVoices()` nor System.Speech lists them. They do work when opened by token id, and classic SAPI apps respect them as default voice via `DefaultTokenId`. But anything that should show the voices in a list — Chrome (OneCore registry), Edge read aloud, reader extensions — needs `register.ps1 -Machine` from an elevated prompt. The COM class stays per-user, so even then it only works for this Windows account.
+- **SAPI never enumerates per-user (HKCU) voice tokens** — neither native `GetVoices()` nor System.Speech lists them. They do work when opened by token id, and classic SAPI apps respect them as default voice via `DefaultTokenId`. But anything that should show the voices in a list — Chrome (OneCore registry), Edge read aloud, reader extensions — needs the machine-wide registration (the UAC step of `setup install`). The COM class stays per-user, so even then it only works for this Windows account.
 
 ## Known limitations / roadmap
 

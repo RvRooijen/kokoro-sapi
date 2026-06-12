@@ -5,7 +5,7 @@
 
 #![allow(non_snake_case)]
 
-mod config;
+pub mod config;
 mod engine;
 mod g2p;
 mod logger;
@@ -21,8 +21,28 @@ use windows::Win32::System::Com::*;
 
 use engine::KokoroEngine;
 
-/// CLSID of the engine; must match the GUID in scripts/register.ps1.
+/// CLSID of the engine. The setup binary derives the registry string from
+/// this constant, so it is the single source of truth.
 pub const CLSID_KOKORO_ENGINE: GUID = GUID::from_u128(0x6a2c7f52_3b19_4e5d_9c01_8f4a2d7b61e3);
+
+/// The CLSID in registry form: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}.
+pub fn clsid_braced() -> String {
+    let g = &CLSID_KOKORO_ENGINE;
+    format!(
+        "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+        g.data1,
+        g.data2,
+        g.data3,
+        g.data4[0],
+        g.data4[1],
+        g.data4[2],
+        g.data4[3],
+        g.data4[4],
+        g.data4[5],
+        g.data4[6],
+        g.data4[7]
+    )
+}
 
 #[implement(IClassFactory)]
 struct ClassFactory;
