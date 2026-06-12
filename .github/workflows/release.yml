@@ -1,0 +1,45 @@
+# Builds the release zip (setup.exe + kokoro_sapi.dll) so users don't need
+# Rust: download, extract, double-click setup.exe.
+#
+# Runs on every v* tag (creates a GitHub release) and on manual dispatch
+# (uploads the zip as a workflow artifact only).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/release/kokoro_sapi.dll, target/release/setup.exe, README.md, LICENSE dist/
+          Compress-Archive -Path dist/* -DestinationPath kokoro-sapi-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-sapi-win-x64
+          path: kokoro-sapi-win-x64.zip
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kokoro-sapi-win-x64.zip
+          generate_release_notes: true

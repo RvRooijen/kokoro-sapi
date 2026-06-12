@@ -10,9 +10,9 @@ Everything runs locally and in-process: no cloud, no server, no Python. Inferenc
 
 ## Setup
 
-You need Windows 10/11 (64-bit) and [Rust](https://rustup.rs) with the default MSVC toolchain (rustup offers to install the Visual Studio Build Tools if they're missing).
+**Without building anything**: download the latest [release zip](https://github.com/RvRooijen/kokoro-sapi/releases), extract it, and double-click `setup.exe`. SmartScreen will warn about the unsigned binary ("More info" → "Run anyway"); the zip is built from this source by GitHub Actions, so every release is traceable to a commit.
 
-From a terminal in the repo root:
+**From source**: you need Windows 10/11 (64-bit) and [Rust](https://rustup.rs) with the default MSVC toolchain (rustup offers to install the Visual Studio Build Tools if they're missing). From a terminal in the repo root:
 
 ```
 cargo build --release
