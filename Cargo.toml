@@ -1,0 +1,27 @@
+[package]
+name = "kokoro-sapi"
+version = "0.1.0"
+edition = "2021"
+description = "Kokoro TTS as a Windows SAPI5 voice (per-user, no admin)"
+license = "MIT"
+
+[lib]
+name = "kokoro_sapi"
+crate-type = ["cdylib"]
+
+[dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_Media_Speech",
+    "Win32_Media_Audio",
+] }
+windows-core = "0.61"
+ort = { version = "=2.0.0-rc.12", features = ["load-dynamic"] }
+libloading = "0.8"
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
