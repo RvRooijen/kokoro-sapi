@@ -1,4 +1,4 @@
-# Downloads everything the engine needs at runtime into %LOCALAPPDATA%\KokoroSapi:
+﻿# Downloads everything the engine needs at runtime into %LOCALAPPDATA%\KokoroSapi:
 #   model.onnx        Kokoro 82M (onnx-community export)
 #   tokenizer.json    phoneme -> token id vocab
 #   voices\*.bin      style vectors per voice

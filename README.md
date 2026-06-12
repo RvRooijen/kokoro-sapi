@@ -24,9 +24,19 @@ Smoke test (works in Windows PowerShell and pwsh; uses native SAPI, the same pat
 .\scripts\test-speak.ps1
 ```
 
-Then restart Chrome and pick a *Kokoro* voice in reading mode's voice menu. Remove everything with `scripts\unregister.ps1`.
-
 Tip: you can register before downloading assets — the engine then speaks a 440 Hz test tone, which is a quick way to verify the COM/SAPI plumbing in isolation.
+
+## Chrome reading mode
+
+Reading mode does not list individual SAPI voices — its voice menu has Google's own downloadable voices plus a single **"System text-to-speech voice"** entry, which speaks with the *default* SAPI voice. So:
+
+```powershell
+.\scripts\set-default-voice.ps1            # make Kokoro Heart the default (-Token KokoroEmma for another)
+```
+
+Then restart Chrome and select "System text-to-speech voice" in reading mode. `set-default-voice.ps1 -Reset` restores the old default; `scripts\unregister.ps1` removes everything (including the default, if it pointed at Kokoro).
+
+Apps that enumerate voices individually (Edge read aloud, most reader extensions) only show voices registered machine-wide — see `register.ps1 -Machine` under Gotchas.
 
 ## Voices
 
@@ -51,7 +61,7 @@ Add more by extending the voice list in `scripts/register.ps1` and the download 
 ## Gotchas
 
 - **ONNX Runtime must be 1.26+** (the download script pins this). Older builds, including 1.22, can deadlock inside `CreateEnv`: ORT's Windows telemetry registers an ETW provider, and with the DiagTrack session subscribed (the Windows default) the enable callback fires synchronously and self-deadlocks. There is no runtime opt-out; don't downgrade. `examples/ortload.rs` is a standalone repro/smoke test for this.
-- **System.Speech (.NET) only enumerates HKLM voices**, so the Kokoro voices won't appear in .NET apps. Native SAPI apps (Chrome, Edge, `test-speak.ps1`) see the HKCU registration fine.
+- **SAPI never enumerates per-user (HKCU) voice tokens** — neither native `GetVoices()` nor System.Speech lists them. They do work when opened by token id, and via the default-voice mechanism (`DefaultTokenId` in HKCU is respected) — which is exactly how Chrome's "System text-to-speech voice" picks them up. To get the voices into actual voice lists (Edge read aloud, reader extensions), run `register.ps1 -Machine` from an elevated prompt; the COM class stays per-user, so this is still single-account.
 
 ## Known limitations / roadmap
 

@@ -1,12 +1,22 @@
 ﻿# Registers the engine DLL and the Kokoro voices per-user (HKCU) — no admin needed.
 # 64-bit apps only (Chrome, Edge, 64-bit PowerShell), which is what we care about.
 #
+# SAPI never enumerates HKCU voice tokens, so per-user voices do not show up in
+# voice lists; they work via the default-voice mechanism (set-default-voice.ps1,
+# which is how Chrome reading mode uses them) or when opened by token id. To
+# also make them appear in voice lists (Edge read aloud, reader extensions),
+# add -Machine from an elevated prompt: that writes the tokens to HKLM as well.
+# The COM class itself stays per-user, so this still only works for this
+# Windows account.
+#
 # Usage:  .\register.ps1                       (finds the release DLL automatically)
 #         .\register.ps1 -DllPath C:\path\kokoro_sapi.dll
+#         .\register.ps1 -Machine               (elevated: voices in HKLM too)
 
 param(
     [string]$DllPath,
-    [string]$AssetsDir = "$env:LOCALAPPDATA\KokoroSapi"
+    [string]$AssetsDir = "$env:LOCALAPPDATA\KokoroSapi",
+    [switch]$Machine
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,20 +50,29 @@ $voices = @(
     @{ Token = 'KokoroEmma';    Display = 'Kokoro Emma (en-GB)';    VoiceName = 'bf_emma';    Gender = 'Female'; Language = '809' }
 )
 
-foreach ($v in $voices) {
-    $base = "HKCU:\SOFTWARE\Microsoft\Speech\Voices\Tokens\$($v.Token)"
-    New-Item -Force -Path "$base\Attributes" | Out-Null
-    Set-ItemProperty -Path $base -Name '(default)' -Value $v.Display
-    Set-ItemProperty -Path $base -Name 'CLSID' -Value $clsid
-    Set-ItemProperty -Path $base -Name 'VoiceName' -Value $v.VoiceName
-    Set-ItemProperty -Path $base -Name 'AssetsDir' -Value $AssetsDir
-    Set-ItemProperty -Path "$base\Attributes" -Name 'Name' -Value $v.Display
-    Set-ItemProperty -Path "$base\Attributes" -Name 'Gender' -Value $v.Gender
-    Set-ItemProperty -Path "$base\Attributes" -Name 'Age' -Value 'Adult'
-    Set-ItemProperty -Path "$base\Attributes" -Name 'Vendor' -Value 'Kokoro'
-    Set-ItemProperty -Path "$base\Attributes" -Name 'Language' -Value $v.Language
-    Write-Host "  voice: $($v.Display)"
+$hives = @('HKCU:')
+if ($Machine) {
+    $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $admin) { throw '-Machine requires an elevated prompt' }
+    $hives += 'HKLM:'
 }
 
-Write-Host "`nDone. Test with scripts\test-speak.ps1 (in Windows PowerShell, not pwsh)."
-Write-Host "Restart Chrome before looking for the voices in reading mode."
+foreach ($hive in $hives) {
+    foreach ($v in $voices) {
+        $base = "$hive\SOFTWARE\Microsoft\Speech\Voices\Tokens\$($v.Token)"
+        New-Item -Force -Path "$base\Attributes" | Out-Null
+        Set-ItemProperty -Path $base -Name '(default)' -Value $v.Display
+        Set-ItemProperty -Path $base -Name 'CLSID' -Value $clsid
+        Set-ItemProperty -Path $base -Name 'VoiceName' -Value $v.VoiceName
+        Set-ItemProperty -Path $base -Name 'AssetsDir' -Value $AssetsDir
+        Set-ItemProperty -Path "$base\Attributes" -Name 'Name' -Value $v.Display
+        Set-ItemProperty -Path "$base\Attributes" -Name 'Gender' -Value $v.Gender
+        Set-ItemProperty -Path "$base\Attributes" -Name 'Age' -Value 'Adult'
+        Set-ItemProperty -Path "$base\Attributes" -Name 'Vendor' -Value 'Kokoro'
+        Set-ItemProperty -Path "$base\Attributes" -Name 'Language' -Value $v.Language
+        Write-Host "  voice: $($v.Display) [$hive]"
+    }
+}
+
+Write-Host "`nDone. Test with scripts\test-speak.ps1, then scripts\set-default-voice.ps1 for Chrome."
